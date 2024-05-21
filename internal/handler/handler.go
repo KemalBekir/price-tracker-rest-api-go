@@ -1,33 +1,18 @@
 package handler
 
 import (
-	"context"
 	"encoding/json"
-	"log"
 	"net/http"
 
-	"github.com/KemalBekir/price-tracker-rest-api-go/internal/db"
-	"github.com/KemalBekir/price-tracker-rest-api-go/internal/model"
-	"go.mongodb.org/mongo-driver/bson"
+	"github.com/KemalBekir/price-tracker-rest-api-go/internal/services"
 )
 
 func GetAllItemsHandler(w http.ResponseWriter, r *http.Request) {
-	collection := db.GetCollection("searches")
-	ctx := context.TODO()
-
-	cursor, err := collection.Find(ctx, bson.M{})
+	data, err := services.GetAll()
 	if err != nil {
-		log.Printf("Failed to fetch items %s", http.StatusInternalServerError)
+		http.Error(w, "Failed to fetch items", http.StatusInternalServerError)
 	}
-
-	defer cursor.Close(ctx)
-
-	var items []model.Searches
-	if err = cursor.All(ctx, &items); err != nil {
-		log.Printf("Failed to decode items %s", http.StatusInternalServerError)
-	}
-
-	json.NewEncoder(w).Encode(items)
+	json.NewEncoder(w).Encode(data)
 }
 
 // func ScrapeHandler(w http.ResponseWriter, r *http.Request) {
