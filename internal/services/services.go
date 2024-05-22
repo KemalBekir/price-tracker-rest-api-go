@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"time"
 
 	"github.com/KemalBekir/price-tracker-rest-api-go/internal/db"
 	"github.com/KemalBekir/price-tracker-rest-api-go/internal/model"
@@ -76,4 +77,33 @@ func GetAllByOwner(ownerID primitive.ObjectID) ([]model.Searches, error) {
 
 	return items, nil
 
+}
+
+func CreateSearch(search model.Searches) (model.Searches, error) {
+	collection := db.GetCollection("searches")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	search.ID = primitive.NewObjectID()
+	search.CreatedAt = time.Now()
+	search.UpdatedAt = time.Now()
+
+	_, err := collection.InsertOne(ctx, search)
+	return search, err
+}
+
+func GetSearchByID(id string) (model.Searches, error) {
+	collection := db.GetCollection("searches")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	objID, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		return model.Searches{}, err
+	}
+
+	var search model.Searches
+	err = collection.FindOne(ctx, bson.M{"_id": objID}).Decode(&search)
+
+	return search, err
 }
