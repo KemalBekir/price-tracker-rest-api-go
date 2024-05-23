@@ -9,7 +9,7 @@ import (
 )
 
 func main() {
-	db.Connect()
+	db.ConnectDB()
 
 	r := router.SetupRouter()
 	log.Fatal(http.ListenAndServe(":5000", r))
