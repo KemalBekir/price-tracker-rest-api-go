@@ -5,9 +5,15 @@ import (
 	"net/http"
 
 	"github.com/KemalBekir/price-tracker-rest-api-go/internal/services"
+	"github.com/gorilla/mux"
 )
 
+func setJSONHeader(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "application/json")
+}
+
 func GetAllItemsHandler(w http.ResponseWriter, r *http.Request) {
+	setJSONHeader(w)
 	data, err := services.GetAll()
 	if err != nil {
 		http.Error(w, "Failed to fetch items", http.StatusInternalServerError)
@@ -15,7 +21,19 @@ func GetAllItemsHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(data)
 }
 
+func GetItemHandler(w http.ResponseWriter, r *http.Request) {
+	setJSONHeader(w)
+	id := mux.Vars(r)["id"]
+	item, err := services.GetItemByID(id)
+	if err != nil {
+		http.Error(w, "Item not found", http.StatusNotFound)
+		return
+	}
+	json.NewEncoder(w).Encode(item)
+}
+
 // func ScrapeHandler(w http.ResponseWriter, r *http.Request) {
+// 	setJSONHeader(w)
 // 	var req struct {
 // 		URL    string `json:"url"`
 // 		Domain string `json:"domain"`
@@ -41,15 +59,5 @@ func GetAllItemsHandler(w http.ResponseWriter, r *http.Request) {
 // 	}
 
 // 	item.ID = res.InsertedID.(primitive.ObjectID)
-// 	json.NewEncoder(w).Encode(item)
-// }
-
-// func GetItemHandler(w http.ResponseWriter, r *http.Request) {
-// 	id := mux.Vars(r)["id"]
-// 	item, err := services.GetItemByID(id)
-// 	if err != nil {
-// 		http.Error(w, "Item not found", http.StatusNotFound)
-// 		return
-// 	}
 // 	json.NewEncoder(w).Encode(item)
 // }

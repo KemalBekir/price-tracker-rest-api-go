@@ -2,13 +2,28 @@ package services
 
 import (
 	"context"
+	"errors"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/KemalBekir/price-tracker-rest-api-go/internal/db"
 	"github.com/KemalBekir/price-tracker-rest-api-go/internal/model"
+	"github.com/gocolly/colly"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
 )
+
+type Repository struct {
+	SearchesCollection *mongo.Collection
+}
+
+func NewRepository(client *mongo.Client) *Repository {
+	return &Repository{
+		SearchesCollection: client.Database("priceTracker").Collection("searches"),
+	}
+}
 
 func GetAll() ([]model.Searches, error) {
 	collection := db.GetCollection("searches")
@@ -106,4 +121,82 @@ func GetSearchByID(id string) (model.Searches, error) {
 	err = collection.FindOne(ctx, bson.M{"_id": objID}).Decode(&search)
 
 	return search, err
+}
+
+func ScrapeAndSave(url string, repo *Repository) (*model.Searches, error) {
+	c := colly.NewCollector(
+		colly.AllowedDomains("amazon.co.uk"),
+	)
+
+	var productName, priceStr, imgSrc string
+
+	c.OnHTML("#title", func(e *colly.HTMLElement) {
+		productName = strings.TrimSpace(e.Text)
+	})
+
+	c.OnHTML(".a-price-whole", func(e *colly.HTMLElement) {
+		priceStr = strings.TrimSpace(e.Text)
+	})
+
+	c.OnHTML(".a-price-fraction", func(e *colly.HTMLElement) {
+		priceStr += "." + strings.TrimSpace(e.Text)
+	})
+
+	c.OnHTML(".a-dynamic-image", func(e *colly.HTMLElement) {
+		imgSrc = e.Attr("src")
+	})
+
+	err := c.Visit(url)
+	if err != nil {
+		return nil, err
+	}
+
+	if productName == "" || priceStr == "" {
+		return nil, errors.New("could not extract necessary information")
+	}
+
+	price, err := strconv.ParseFloat(strings.Replace(priceStr, ",", "", -1), 64)
+	if err != nil {
+		return nil, err
+	}
+
+	search := model.Searches{}
+	err = repo.SearchesCollection.FindOne(context.TODO(), bson.M{"url": url}).Decode(&search)
+	if err == mongo.ErrNoDocuments {
+		search = model.Searches{
+			ID:        primitive.NewObjectID(),
+			URL:       url,
+			Domain:    "amazon.co.uk",
+			ItemName:  productName,
+			Img:       imgSrc,
+			Prices:    []model.Price{{ID: primitive.NewObjectID(), Price: price, CreatedAt: time.Now()}},
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		}
+		_, err := repo.SearchesCollection.InsertOne(context.TODO(), search)
+		if err != nil {
+			return nil, err
+		}
+		return &search, nil
+	} else if err != nil {
+		return nil, err
+	}
+
+	lastPrice := search.Prices[len(search.Prices)-1].Price
+	if lastPrice != price {
+		newPrice := model.Price{ID: primitive.NewObjectID(), Price: price, CreatedAt: time.Now()}
+		search.Prices = append(search.Prices, newPrice)
+		search.UpdatedAt = time.Now()
+		_, err := repo.SearchesCollection.UpdateOne(
+			context.TODO(),
+			bson.M{"_id": search.ID},
+			bson.M{"$set": bson.M{"prices": search.Prices, "updatedAt": search.UpdatedAt}},
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return &search, nil
+
 }

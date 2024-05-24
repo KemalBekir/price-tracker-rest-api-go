@@ -2,7 +2,10 @@ package db
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"time"
 
@@ -13,8 +16,8 @@ import (
 
 var Client *mongo.Client
 
-func Connect() {
-	err := godotenv.Load()
+func ConnectDB() {
+	err := godotenv.Load("../../.env")
 	if err != nil {
 		log.Fatal("Error while loading .env file")
 	}
@@ -30,10 +33,28 @@ func Connect() {
 	if err != nil {
 		log.Fatal("Error while connecting to your DB")
 	}
-
+	fmt.Println("Connected to your DB")
 	Client = client
 }
 
 func GetCollection(collectionName string) *mongo.Collection {
 	return Client.Database("priceTracker").Collection(collectionName)
+}
+
+type ErrorResponse struct {
+	StatusCode   int    `json:"status"`
+	ErrorMessage string `json:"message"`
+}
+
+func GetError(err error, w http.ResponseWriter) {
+	log.Fatal(err.Error())
+	var response = ErrorResponse{
+		ErrorMessage: err.Error(),
+		StatusCode:   http.StatusInternalServerError,
+	}
+
+	message, _ := json.Marshal(response)
+
+	w.WriteHeader(response.StatusCode)
+	w.Write(message)
 }
