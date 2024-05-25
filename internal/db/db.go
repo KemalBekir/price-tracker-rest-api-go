@@ -16,7 +16,7 @@ import (
 
 var Client *mongo.Client
 
-func ConnectDB() {
+func ConnectDB() (*mongo.Client, error) {
 	err := godotenv.Load("../../.env")
 	if err != nil {
 		log.Fatal("Error while loading .env file")
@@ -35,6 +35,8 @@ func ConnectDB() {
 	}
 	fmt.Println("Connected to your DB")
 	Client = client
+
+	return Client, nil
 }
 
 func GetCollection(collectionName string) *mongo.Collection {

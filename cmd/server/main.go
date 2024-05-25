@@ -9,8 +9,15 @@ import (
 )
 
 func main() {
-	db.ConnectDB()
+	client, err := db.ConnectDB()
+	if err != nil {
+		log.Fatalf("Could not connect to the database: %v", err)
+	}
 
-	r := router.SetupRouter()
+	searchesCollection := client.Database("priceTracker").Collection("searches")
+	pricesCollection := client.Database("priceTracker").Collection("pricehistories")
+
+	r := router.SetupRouter(searchesCollection, pricesCollection)
+	log.Println("Starting server on :5000")
 	log.Fatal(http.ListenAndServe(":5000", r))
 }

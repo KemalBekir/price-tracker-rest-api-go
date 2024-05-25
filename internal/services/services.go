@@ -2,7 +2,7 @@ package services
 
 import (
 	"context"
-	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -13,17 +13,8 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
-
-type Repository struct {
-	SearchesCollection *mongo.Collection
-}
-
-func NewRepository(client *mongo.Client) *Repository {
-	return &Repository{
-		SearchesCollection: client.Database("priceTracker").Collection("searches"),
-	}
-}
 
 func GetAll() ([]model.Searches, error) {
 	collection := db.GetCollection("searches")
@@ -123,23 +114,26 @@ func GetSearchByID(id string) (model.Searches, error) {
 	return search, err
 }
 
-func ScrapeAndSave(url string, repo *Repository) (*model.Searches, error) {
-	c := colly.NewCollector(
-		colly.AllowedDomains("amazon.co.uk"),
-	)
+// TODO: fix not getting productName and price
+func ScrapeAmazon(url string, searchesCollection, pricesCollection *mongo.Collection) (*model.Searches, error) {
+	c := colly.NewCollector()
 
-	var productName, priceStr, imgSrc string
+	var productName, imgSrc string
+	var formattedPrice float64
 
-	c.OnHTML("#title", func(e *colly.HTMLElement) {
+	c.Wait()
+
+	c.OnHTML("span#productTitle", func(e *colly.HTMLElement) {
 		productName = strings.TrimSpace(e.Text)
 	})
 
-	c.OnHTML(".a-price-whole", func(e *colly.HTMLElement) {
-		priceStr = strings.TrimSpace(e.Text)
-	})
-
-	c.OnHTML(".a-price-fraction", func(e *colly.HTMLElement) {
-		priceStr += "." + strings.TrimSpace(e.Text)
+	c.OnHTML(".aok-offscreen", func(e *colly.HTMLElement) {
+		priceText := e.Text
+		priceText = priceText + e.ChildText(".a-price-fraction")
+		price, err := strconv.ParseFloat(strings.Replace(priceText, ",", "", -1), 64)
+		if err == nil {
+			formattedPrice = price
+		}
 	})
 
 	c.OnHTML(".a-dynamic-image", func(e *colly.HTMLElement) {
@@ -151,52 +145,53 @@ func ScrapeAndSave(url string, repo *Repository) (*model.Searches, error) {
 		return nil, err
 	}
 
-	if productName == "" || priceStr == "" {
-		return nil, errors.New("could not extract necessary information")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	domain := "amazon.co.uk" // Assuming the domain is always amazon.co.uk
+
+	search := &model.Searches{
+		URL:      url,
+		Domain:   domain,
+		ItemName: productName,
+		Img:      imgSrc,
 	}
 
-	price, err := strconv.ParseFloat(strings.Replace(priceStr, ",", "", -1), 64)
+	// Define a new Price object
+	newPrice := model.Price{
+		ID:        primitive.NewObjectID(),
+		Price:     formattedPrice,
+		CreatedAt: time.Now(), // Set the creation time of the price
+	}
+
+	filter := bson.M{"url": url}
+	update := bson.M{
+		"$set": search,
+		"$addToSet": bson.M{
+			"prices": newPrice,
+		},
+		"$currentDate": bson.M{
+			"updatedAt": true,
+		},
+	}
+	opts := options.FindOneAndUpdate().SetUpsert(true).SetReturnDocument(options.After)
+
+	var updatedSearch model.Searches
+	err = searchesCollection.FindOneAndUpdate(ctx, filter, update, opts).Decode(&updatedSearch)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("could not insert or update search: %v", err)
 	}
 
-	search := model.Searches{}
-	err = repo.SearchesCollection.FindOne(context.TODO(), bson.M{"url": url}).Decode(&search)
-	if err == mongo.ErrNoDocuments {
-		search = model.Searches{
-			ID:        primitive.NewObjectID(),
-			URL:       url,
-			Domain:    "amazon.co.uk",
-			ItemName:  productName,
-			Img:       imgSrc,
-			Prices:    []model.Price{{ID: primitive.NewObjectID(), Price: price, CreatedAt: time.Now()}},
-			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
-		}
-		_, err := repo.SearchesCollection.InsertOne(context.TODO(), search)
-		if err != nil {
-			return nil, err
-		}
-		return &search, nil
-	} else if err != nil {
-		return nil, err
+	price := &model.Price{
+		Price:     formattedPrice,
+		SearchID:  updatedSearch.ID,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
 	}
 
-	lastPrice := search.Prices[len(search.Prices)-1].Price
-	if lastPrice != price {
-		newPrice := model.Price{ID: primitive.NewObjectID(), Price: price, CreatedAt: time.Now()}
-		search.Prices = append(search.Prices, newPrice)
-		search.UpdatedAt = time.Now()
-		_, err := repo.SearchesCollection.UpdateOne(
-			context.TODO(),
-			bson.M{"_id": search.ID},
-			bson.M{"$set": bson.M{"prices": search.Prices, "updatedAt": search.UpdatedAt}},
-		)
-		if err != nil {
-			return nil, err
-		}
+	_, err = pricesCollection.InsertOne(ctx, price)
+	if err != nil {
+		return nil, fmt.Errorf("could not insert price: %v", err)
 	}
 
-	return &search, nil
-
+	return &updatedSearch, nil
 }

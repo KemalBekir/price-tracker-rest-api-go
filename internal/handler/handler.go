@@ -6,6 +6,7 @@ import (
 
 	"github.com/KemalBekir/price-tracker-rest-api-go/internal/services"
 	"github.com/gorilla/mux"
+	"go.mongodb.org/mongo-driver/mongo"
 )
 
 func setJSONHeader(w http.ResponseWriter) {
@@ -32,32 +33,32 @@ func GetItemHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(item)
 }
 
-// func ScrapeHandler(w http.ResponseWriter, r *http.Request) {
-// 	setJSONHeader(w)
-// 	var req struct {
-// 		URL    string `json:"url"`
-// 		Domain string `json:"domain"`
-// 	}
+type ScrapeRequest struct {
+	URL string `json:"url"`
+}
 
-// 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-// 		http.Error(w, "Invalid request payload", http.StatusBadRequest)
-// 		return
-// 	}
+func ScrapeHandler(searchesCollection, pricesCollection *mongo.Collection) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		setJSONHeader(w)
 
-// 	price, err := scraper.ScrapePrice(req.URL)
-// 	if err != nil {
-// 		http.Error(w, "Failed to scrape the price", http.StatusInternalServerError)
-// 		return
-// 	}
-// 	item := model.Searches{URL: req.URL, PRICES: price}
-// 	collection := db.GetCollection("searches")
+		var scrapeReq ScrapeRequest
+		if err := json.NewDecoder(r.Body).Decode(&scrapeReq); err != nil {
+			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
 
-// 	res, err := collection.InsertOne(context.TODO(), item)
-// 	if err != nil {
-// 		http.Error(w, "Failed to save item to database", http.StatusInternalServerError)
-// 		return
-// 	}
+		if scrapeReq.URL == "" {
+			http.Error(w, "URL is required", http.StatusBadRequest)
+			return
+		}
 
-// 	item.ID = res.InsertedID.(primitive.ObjectID)
-// 	json.NewEncoder(w).Encode(item)
-// }
+		search, err := services.ScrapeAmazon(scrapeReq.URL, searchesCollection, pricesCollection)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(search)
+	}
+}
