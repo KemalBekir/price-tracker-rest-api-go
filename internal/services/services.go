@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"log"
 	"strconv"
 	"strings"
 	"time"
@@ -16,22 +17,58 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-func GetAll() ([]model.Searches, error) {
-	collection := db.GetCollection("searches")
-	ctx := context.TODO()
+// TODO - fix not fetching data correctly
+func GetAll(searchesCollection, pricesCollection *mongo.Collection) ([]model.SearchResponse, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second) // Increased timeout
+	defer cancel()
 
-	cursor, err := collection.Find(ctx, bson.M{})
+	cursor, err := searchesCollection.Find(ctx, bson.M{})
 	if err != nil {
+		log.Printf("Error finding documents: %v", err)
 		return nil, err
 	}
 	defer cursor.Close(ctx)
 
-	var items []model.Searches
-	if err = cursor.All(ctx, &items); err != nil {
+	var searchResponses []model.SearchResponse
+	for cursor.Next(ctx) {
+		var search model.Searches
+		if err := cursor.Decode(&search); err != nil {
+			log.Printf("Error decoding search document: %v", err)
+			return nil, err
+		}
+
+		var prices []model.Price
+		for _, priceID := range search.Prices {
+			var price model.Price
+			err := pricesCollection.FindOne(ctx, bson.M{"_id": priceID}).Decode(&price)
+			if err != nil {
+				log.Printf("Error finding price document: %v", err)
+				continue
+			}
+			prices = append(prices, price)
+		}
+
+		searchResponse := model.SearchResponse{
+			ID:        search.ID,
+			URL:       search.URL,
+			Domain:    search.Domain,
+			ItemName:  search.ItemName,
+			Img:       search.Img,
+			Prices:    prices,
+			Owner:     search.Owner,
+			CreatedAt: search.CreatedAt,
+			UpdatedAt: search.UpdatedAt,
+		}
+
+		searchResponses = append(searchResponses, searchResponse)
+	}
+
+	if err := cursor.Err(); err != nil {
+		log.Printf("Cursor error: %v", err)
 		return nil, err
 	}
 
-	return items, nil
+	return searchResponses, nil
 }
 
 func GetItemByID(id string) (model.Searches, error) {
@@ -123,20 +160,32 @@ func ScrapeAmazon(url string, searchesCollection, pricesCollection *mongo.Collec
 
 	c.Wait()
 
-	c.OnHTML("span#productTitle", func(e *colly.HTMLElement) {
+	c.OnHTML(".product-hero__title", func(e *colly.HTMLElement) {
 		productName = strings.TrimSpace(e.Text)
 	})
 
-	c.OnHTML(".aok-offscreen", func(e *colly.HTMLElement) {
+	c.OnHTML(".inc-vat .price", func(e *colly.HTMLElement) {
+		// Extract the price text content
 		priceText := e.Text
-		priceText = priceText + e.ChildText(".a-price-fraction")
-		price, err := strconv.ParseFloat(strings.Replace(priceText, ",", "", -1), 64)
+		// Clean up the price text
+		priceText = strings.TrimSpace(priceText)
+		priceText = strings.ReplaceAll(priceText, "£", "")
+		priceText = strings.ReplaceAll(priceText, ",", "")
+		priceText = strings.ReplaceAll(priceText, "inc.", "")
+		priceText = strings.ReplaceAll(priceText, "vat", "")
+		priceText = strings.ReplaceAll(priceText, " ", "")
+		priceText = strings.ReplaceAll(priceText, "\n", "")
+
+		// Convert the cleaned price text to float64
+		price, err := strconv.ParseFloat(priceText, 64)
 		if err == nil {
 			formattedPrice = price
+		} else {
+			fmt.Println("Error parsing price:", err)
 		}
 	})
 
-	c.OnHTML(".a-dynamic-image", func(e *colly.HTMLElement) {
+	c.OnHTML(".js-carousel-img", func(e *colly.HTMLElement) {
 		imgSrc = e.Attr("src")
 	})
 
@@ -147,7 +196,7 @@ func ScrapeAmazon(url string, searchesCollection, pricesCollection *mongo.Collec
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	domain := "amazon.co.uk" // Assuming the domain is always amazon.co.uk
+	domain := "ebuyer.com" // Assuming the domain is always ebuyer.com
 
 	search := &model.Searches{
 		URL:      url,

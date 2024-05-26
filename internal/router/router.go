@@ -8,7 +8,7 @@ import (
 
 func SetupRouter(searchesCollection, pricesCollection *mongo.Collection) *mux.Router {
 	r := mux.NewRouter()
-	r.HandleFunc("/", handler.GetAllItemsHandler).Methods("GET")
+	r.HandleFunc("/", handler.GetAllItemsHandler(searchesCollection, pricesCollection)).Methods("GET")
 	r.HandleFunc("/scrape", handler.ScrapeHandler(searchesCollection, pricesCollection)).Methods("POST")
 	// r.HandleFunc("/{id}", handler.GetItemHandler).Methods("GET")
 	// r.HandleFunc("/{id}", middleware.IsOwner(handler.DeleteItemHandler)).Methods("DELETE")
