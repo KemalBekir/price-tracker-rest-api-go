@@ -2,7 +2,6 @@ package handler
 
 import (
 	"encoding/json"
-	"log"
 	"net/http"
 
 	"github.com/KemalBekir/price-tracker-rest-api-go/internal/services"
@@ -14,21 +13,15 @@ func setJSONHeader(w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "application/json")
 }
 
-func GetAllItemsHandler(searchesCollection, pricesCollection *mongo.Collection) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		setJSONHeader(w)
-
-		data, err := services.GetAll(searchesCollection, pricesCollection)
-		if err != nil {
-			log.Printf("Failed to fetch items: %v", err)
-			http.Error(w, "Failed to fetch items", http.StatusInternalServerError)
-			return
-		}
-
-		if err := json.NewEncoder(w).Encode(data); err != nil {
-			log.Printf("Failed to encode items: %v", err)
-			http.Error(w, "Failed to encode items", http.StatusInternalServerError)
-		}
+func GetAllItemsHandler(w http.ResponseWriter, r *http.Request) {
+	setJSONHeader(w)
+	data, err := services.GetAll()
+	if err != nil {
+		http.Error(w, "Failed to fetch items", http.StatusInternalServerError)
+		return
+	}
+	if err := json.NewEncoder(w).Encode(data); err != nil {
+		http.Error(w, "Failed to encode items", http.StatusInternalServerError)
 	}
 }
 
