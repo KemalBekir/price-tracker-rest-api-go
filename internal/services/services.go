@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"log"
 	"strconv"
 	"strings"
 	"time"
@@ -207,3 +208,64 @@ func ScrapeAmazon(url string, searchesCollection, pricesCollection *mongo.Collec
 
 	return &updatedSearch, nil
 }
+
+func fetchPrice(url string) (float64, error) {
+	c := colly.NewCollector(
+		colly.AllowedDomains("ebuyer.com"),
+	)
+
+	var price float64
+
+	c.OnHTML("div.purchase-info__price div.inc-vat p.price", func(e *colly.HTMLElement) {
+		priceText := e.Text
+
+		priceText = strings.TrimSpace(priceText)
+		priceText = strings.ReplaceAll(priceText, "£", "")
+		priceText = strings.ReplaceAll(priceText, ",", "")
+		priceText = strings.ReplaceAll(priceText, "inc.", "")
+		priceText = strings.ReplaceAll(priceText, "vat", "")
+		priceText = strings.ReplaceAll(priceText, " ", "")
+		priceText = strings.ReplaceAll(priceText, "\n", "")
+
+		var err error
+		price, err = strconv.ParseFloat(priceText, 64)
+		if err != nil {
+			log.Println("Error parsing price: ", err)
+		}
+	})
+
+	c.OnError(func(r *colly.Response, err error) {
+		log.Println("Request URL: ", r.Request.URL, "failed with response: ", r, "\nError", err)
+	})
+	err := c.Visit(url)
+	if err != nil {
+		return 0, err
+	}
+
+	c.Wait()
+	return price, nil
+}
+
+func updatePrice(collection *mongo.Collection, searchId primitive.ObjectID, newPrice float64) error {
+	filter := bson.M{"_id": searchId}
+	update := bson.M{"$set": bson.M{"price": newPrice, "updatedAt": time.Now()}}
+	_, err := collection.UpdateOne(context.TODO(), filter, update)
+	return err
+}
+
+// func checkAndUpdatePrices() {
+// 	searches, err := GetAll()
+// 	if err != nil {
+// 		log.Fatalf("Failed to fetch searches: %v", err)
+// 		return
+// 	}
+
+// 	for _, search := range searches {
+// 		currentPrice, err := fetchPrice(search.URL)
+// 		if err != nil {
+// 			log.Printf("Failed to fetch price for URL %s: %v", search.URL, err)
+// 			continue
+// 		}
+// 		err = updatePrice(pricesCollection, search.ID, currentPrice)
+// 	}
+// }
