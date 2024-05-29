@@ -55,7 +55,7 @@ func ScrapeHandler(searchesCollection, pricesCollection *mongo.Collection) http.
 			return
 		}
 
-		search, err := services.ScrapeAmazon(scrapeReq.URL, searchesCollection, pricesCollection)
+		search, err := services.Scrape(scrapeReq.URL, searchesCollection, pricesCollection)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

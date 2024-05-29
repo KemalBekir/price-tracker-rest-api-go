@@ -6,6 +6,7 @@ import (
 	"log"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/KemalBekir/price-tracker-rest-api-go/internal/db"
@@ -115,8 +116,7 @@ func GetSearchByID(id string) (model.Searches, error) {
 	return search, err
 }
 
-// TODO: fix not getting productName and price
-func ScrapeAmazon(url string, searchesCollection, pricesCollection *mongo.Collection) (*model.Searches, error) {
+func Scrape(url string, searchesCollection, pricesCollection *mongo.Collection) (*model.Searches, error) {
 	c := colly.NewCollector()
 
 	var productName, imgSrc string
@@ -246,26 +246,64 @@ func fetchPrice(url string) (float64, error) {
 	return price, nil
 }
 
-func updatePrice(collection *mongo.Collection, searchId primitive.ObjectID, newPrice float64) error {
-	filter := bson.M{"_id": searchId}
-	update := bson.M{"$set": bson.M{"price": newPrice, "updatedAt": time.Now()}}
-	_, err := collection.UpdateOne(context.TODO(), filter, update)
-	return err
+func UpdatePrices(searchesCollection, pricesCollection *mongo.Collection) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
+
+	cursor, err := searchesCollection.Find(ctx, bson.M{})
+	if err != nil {
+		return fmt.Errorf("could not fetch searches: %v", err)
+	}
+	defer cursor.Close(ctx)
+
+	var wg sync.WaitGroup
+
+	for cursor.Next(ctx) {
+		var search model.Searches
+		if err := cursor.Decode(&search); err != nil {
+			return fmt.Errorf("could not decode search: %v", err)
+		}
+
+		wg.Add(1)
+		go func(search model.Searches) {
+			defer wg.Done()
+
+			price, err := fetchPrice(search.URL)
+			if err != nil {
+				log.Printf("Error fetching price for URL %s: %v", search.URL, err)
+				return
+			}
+
+			newPrice := model.Price{
+				ID:        primitive.NewObjectID(),
+				Price:     price,
+				CreatedAt: time.Now(),
+			}
+
+			filter := bson.M{"_id": search.ID}
+			update := bson.M{
+				"$addToSet": bson.M{
+					"prices": newPrice,
+				},
+				"$currentDate": bson.M{
+					"updatedAt": true,
+				},
+			}
+
+			opts := options.FindOneAndUpdate().SetReturnDocument(options.After)
+
+			err = searchesCollection.FindOneAndUpdate(ctx, filter, update, opts).Decode(&search)
+			if err != nil {
+				log.Printf("Could not update search %s: %v", search.URL, err)
+			}
+
+			_, err = pricesCollection.InsertOne(ctx, newPrice)
+			if err != nil {
+				log.Printf("Could not insert new price for URL %s: %v", search.URL, err)
+			}
+		}(search)
+	}
+
+	wg.Wait()
+	return nil
 }
-
-// func checkAndUpdatePrices() {
-// 	searches, err := GetAll()
-// 	if err != nil {
-// 		log.Fatalf("Failed to fetch searches: %v", err)
-// 		return
-// 	}
-
-// 	for _, search := range searches {
-// 		currentPrice, err := fetchPrice(search.URL)
-// 		if err != nil {
-// 			log.Printf("Failed to fetch price for URL %s: %v", search.URL, err)
-// 			continue
-// 		}
-// 		err = updatePrice(pricesCollection, search.ID, currentPrice)
-// 	}
-// }
