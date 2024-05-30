@@ -211,7 +211,7 @@ func Scrape(url string, searchesCollection, pricesCollection *mongo.Collection) 
 
 func fetchPrice(url string) (float64, error) {
 	c := colly.NewCollector(
-		colly.AllowedDomains("ebuyer.com"),
+		colly.AllowedDomains("ebuyer.com", "www.ebuyer.com"),
 	)
 
 	var price float64

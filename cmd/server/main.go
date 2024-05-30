@@ -21,7 +21,7 @@ func main() {
 	pricesCollection := client.Database("priceTracker").Collection("pricehistories")
 
 	c := cron.New()
-	_, err = c.AddFunc("@daily", func() {
+	_, err = c.AddFunc("0 23 * * *", func() {
 		err := services.UpdatePrices(searchesCollection, pricesCollection)
 		if err != nil {
 			log.Printf("Error updating pricing: %v", err)
