@@ -40,7 +40,7 @@ func main() {
 	r := router.SetupRouter(searchesCollection, pricesCollection)
 	// Simplified CORS for debugging
 	corsHandler := cors.New(cors.Options{
-		AllowedOrigins:   []string{"http://localhost:5173", "https://pricetracker-api.onrender.com"},
+		AllowedOrigins:   []string{"http://localhost:5173", "https://pricetracker-ak2h.onrender.com"},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Content-Type", "Authorization"},
 		AllowCredentials: true,
