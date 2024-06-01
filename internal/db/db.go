@@ -20,7 +20,7 @@ func ConnectDB() (*mongo.Client, error) {
 	// err := godotenv.Load("../../.env")
 	err := godotenv.Load()
 	if err != nil {
-		log.Fatal("Error while loading .env file")
+		log.Fatal("Error while loading .env file!")
 	}
 
 	uri := os.Getenv("DB_URI")
