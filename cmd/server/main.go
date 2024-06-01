@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"net/http"
+	"os"
 
 	"github.com/KemalBekir/price-tracker-rest-api-go/internal/db"
 	"github.com/KemalBekir/price-tracker-rest-api-go/internal/router"
@@ -46,6 +47,14 @@ func main() {
 	})
 
 	handler := corsHandler.Handler(r)
+
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "5000" // Default port if not specified
+	}
+
+	log.Printf("Starting server on :%s", port)
+	log.Fatal(http.ListenAndServe(":"+port, handler))
 	log.Println("Starting server on :5000")
 	log.Fatal(http.ListenAndServe(":5000", handler))
 }
