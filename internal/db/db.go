@@ -9,7 +9,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/joho/godotenv"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
@@ -17,21 +16,16 @@ import (
 var Client *mongo.Client
 
 func ConnectDB() (*mongo.Client, error) {
-	err := godotenv.Load("../../.env")
-	if err != nil {
-		log.Fatal("Error while loading .env file!")
-	}
-
 	uri := os.Getenv("DB_URI")
 	if uri == "" {
-		log.Fatal("URI not set in the .env file")
+		log.Fatal("URI not set in the environment variables")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	client, err := mongo.Connect(ctx, options.Client().ApplyURI(uri))
 	if err != nil {
-		log.Fatal("Error while connecting to your DB")
+		log.Fatal("Error while connecting to your DB: ", err)
 	}
 	fmt.Println("Connected to your DB")
 	Client = client
